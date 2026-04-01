@@ -126,7 +126,8 @@ class Jira:
         LOGGER.info(
             "A Jira issue will be reported.",
         )
-        issue = self.connection.create_issue(issue_dict)
+        response = self._jira_request("post", f"{self.url}/rest/api/3/issue", {"fields": issue_dict})
+        issue = self.connection.issue(response.json()["key"])
         LOGGER.info(
             f"{issue} has been reported to Jira: {self.url}/browse/{issue}",
         )
@@ -216,19 +217,16 @@ class Jira:
 
         return issues
 
+    def _jira_request(self, method: str, url: str, payload: dict[str, Any]) -> Any:
+        fn = getattr(self.connection._session, method)
+        response = fn(url, json=payload, headers={"Content-Type": "application/json"})
+        if not response.ok:
+            raise JIRAError(response.text, response.status_code, response.url)
+        return response
+
     def _post_issue_comment_adf(self, issue_key: str, adf_body: dict[str, Any]) -> None:
         url = self.connection._get_url(f"issue/{issue_key}/comment")
-        response = self.connection._session.post(
-            url,
-            json={"body": sanitize_jira_adf_doc(adf_body)},
-            headers={"Content-Type": "application/json"},
-        )
-        if not response.ok:
-            raise JIRAError(
-                text=response.text,
-                status_code=response.status_code,
-                url=response.url,
-            )
+        self._jira_request("post", url, {"body": sanitize_jira_adf_doc(adf_body)})
 
     def _transition_issue_with_adf_comment(
         self,
@@ -248,17 +246,7 @@ class Jira:
             "update": {"comment": [{"add": {"body": sanitize_jira_adf_doc(adf_body)}}]},
         }
         url = self.connection._get_url(f"issue/{issue_key}/transitions")
-        response = self.connection._session.post(
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        if not response.ok:
-            raise JIRAError(
-                text=response.text,
-                status_code=response.status_code,
-                url=response.url,
-            )
+        self._jira_request("post", url, payload)
 
     @ignore_exceptions(retry=3, retry_interval=1, raise_final_exception=True, logger=LOGGER)
     def comment(self, issue_id: str, comment: str | dict[str, Any]) -> None:
@@ -420,47 +408,38 @@ class Jira:
         return self.connection.issue(id=issue)
 
     @ignore_exceptions(retry=3, retry_interval=1, raise_final_exception=True, logger=LOGGER)
-    def add_labels_to_issue(self, issue_id_or_key: str, labels: list[str]) -> Issue:
-        """
-        Append the given labels to a Jira issue, as identified by the issue's key or ID field value.
-        If the label already exists on the issue, it is not duplicated.
-        Returns the value of the modified issue.
-
-        Args:
-            issue_id_or_key (str): The ID or key field value of the Jira Issue object to return.
-            labels: list[str]: The list of labels to add to the Jira issue.
-        Returns:
-            Issue: A Jira Issue object.
-        """
+    def _update_issue_labels(
+        self,
+        issue_id_or_key: str,
+        labels: list[str],
+        operation: str,
+    ) -> tuple[Issue, bool]:
         issue = self.get_issue_by_id_or_key(issue_id_or_key)
-        payload = {"update": {"labels": [{"add": label} for label in labels]}}
-        # Workaround: use the session PUT with explicit Content-Type because the python-jira
-        # library's issue.update() does not set Content-Type: application/json on the request.
-        # Jira Cloud rejects that with HTTP 415. Prefer self.connection.* elsewhere; this is
-        # the only call that bypasses the library until pycontribs/jira fixes the header.
+        payload = {"update": {"labels": [{operation: label} for label in labels]}}
         try:
-            response = self.connection._session.put(
-                issue.self,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            if not response.ok:
-                raise JIRAError(
-                    response.status_code,
-                    response.text,
-                    response.url,
-                )
+            self._jira_request("put", issue.self, payload)
         except JIRAError as error:
             LOGGER.error(
-                f"Failed to add labels {labels} to issue {issue_id_or_key}. Error: {error.text}",
+                "Failed to %s labels %s on issue %s. Error: %s",
+                operation,
+                labels,
+                issue_id_or_key,
+                error.text,
             )
-            if error.status_code == 403:
+            if error.status_code in (400, 403):
                 LOGGER.info(
-                    "This error can be caused by missing permissions on the Jira user."
+                    "This may be caused by project configuration, missing permissions, or the Jira user."
                     ' Please see the "Jira User Permissions" section in the README for more information.',
                 )
+                return issue, False
             raise
-        return issue
+        return issue, True
+
+    def add_labels_to_issue(self, issue_id_or_key: str, labels: list[str]) -> tuple[Issue, bool]:
+        return self._update_issue_labels(issue_id_or_key, labels, "add")
+
+    def remove_labels_from_issue(self, issue_id_or_key: str, labels: list[str]) -> tuple[Issue, bool]:
+        return self._update_issue_labels(issue_id_or_key, labels, "remove")
 
     @ignore_exceptions(retry=3, retry_interval=1, raise_final_exception=True, logger=LOGGER)
     def get_issue_by_id_or_key_with_changelog(self, issue: str) -> Issue:

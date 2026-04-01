@@ -517,6 +517,15 @@ def patch_jira_api_requests(
         elif url_contains_fake_issue_id_or_key(url) and url_contains_issue_subpath and url.endswith("/attachments"):
             LOGGER.info(f"Faking Jira file upload: {url}")
             return fake_issue_add_attachment_response
+        elif url.endswith("/rest/api/3/issue"):
+            return MockJiraApiResponse(
+                _json={
+                    "id": fake_issue_id,
+                    "key": fake_issue_key,
+                    "self": f"{url}/{fake_issue_id}",
+                },
+                _status_code=201,
+            )
         else:
             LOGGER.info(f"Unpatched POST request to: {url}")
             monkeypatch.undo()

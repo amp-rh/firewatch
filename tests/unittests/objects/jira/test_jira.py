@@ -1,7 +1,9 @@
 import json
 
 import pytest
+import pyhelper_utils.general as pyhelper_general
 from jira import Issue
+from jira.exceptions import JIRAError
 from unittest.mock import MagicMock, patch
 
 from src.objects.jira_base import Jira
@@ -27,6 +29,35 @@ def fake_attachment_path(tmp_path):
     yield path
 
 
+def _mock_error_response(status_code: int, text: str, url: str = "https://example/rest/api/3/issue/1"):
+    resp = MagicMock()
+    resp.ok = False
+    resp.status_code = status_code
+    resp.text = text
+    resp.url = url
+    return resp
+
+
+@pytest.fixture
+def mock_jira(monkeypatch):
+    monkeypatch.setattr(Jira, "__init__", lambda self, jira_config_path=None: None)
+    jira = Jira()
+    jira.url = DEFAULT_JIRA_SERVER_URL
+    jira.connection = MagicMock()
+    jira.connection._session = MagicMock()
+
+    post_response = MagicMock()
+    post_response.ok = True
+    post_response.json.return_value = {"key": "TEST-1", "id": "10001"}
+    jira.connection._session.post.return_value = post_response
+
+    created_issue = MagicMock()
+    created_issue.key = "TEST-1"
+    jira.connection.issue.return_value = created_issue
+
+    return jira
+
+
 class TestJiraApiRespondsWithSuccess:
     def test_get_issue_by_id_returns_jira_issue_from_jira_api_client_with_matching_issue_id(self, fake_issue_id, jira):
         issue = jira.get_issue_by_id_or_key(issue=fake_issue_id)
@@ -39,8 +70,9 @@ class TestJiraApiRespondsWithSuccess:
         """Adding labels uses PUT with Content-Type: application/json to avoid 415 from Jira Cloud."""
         labels = ["retrigger", "firewatch"]
         expected = {"update": {"labels": [{"add": "retrigger"}, {"add": "firewatch"}]}}
-        result = jira.add_labels_to_issue(issue_id_or_key=fake_issue_id, labels=labels)
-        assert result is not None
+        issue, applied = jira.add_labels_to_issue(issue_id_or_key=fake_issue_id, labels=labels)
+        assert issue is not None
+        assert applied is True
         assert len(patch_jira_api_requests["put"]) == 1
         _url, (data, args, kwargs) = next(iter(patch_jira_api_requests["put"].items()))
         assert kwargs.get("headers", {}).get("Content-Type") == "application/json"
@@ -49,6 +81,109 @@ class TestJiraApiRespondsWithSuccess:
         payload = kwargs["json"]
         assert "fields" not in payload
         assert payload == expected
+
+    def test_remove_labels_from_issue_sends_content_type_json_for_cloud_compatibility(
+        self, fake_issue_id, jira, patch_jira_api_requests
+    ):
+        labels = ["job_passed_since_ticket_created"]
+        expected = {"update": {"labels": [{"remove": "job_passed_since_ticket_created"}]}}
+        issue, applied = jira.remove_labels_from_issue(issue_id_or_key=fake_issue_id, labels=labels)
+        assert issue is not None
+        assert applied is True
+        assert len(patch_jira_api_requests["put"]) == 1
+        _url, (data, args, kwargs) = next(iter(patch_jira_api_requests["put"].items()))
+        assert kwargs.get("headers", {}).get("Content-Type") == "application/json"
+        assert kwargs.get("json") == expected
+        assert data is None
+
+    def test_create_issue_sends_content_type_json_for_cloud_compatibility(self, jira, patch_jira_api_requests):
+        jira.create_issue(
+            project="TEST",
+            summary="S",
+            description="D",
+            issue_type="Bug",
+        )
+        create_urls = [u for u in patch_jira_api_requests["post"] if u.endswith("/rest/api/3/issue")]
+        assert len(create_urls) == 1
+        _args, kwargs = patch_jira_api_requests["post"][create_urls[0]]
+        assert kwargs.get("headers", {}).get("Content-Type") == "application/json"
+        payload = kwargs.get("json") or {}
+        assert "fields" in payload
+        fields = payload["fields"]
+        assert fields["project"] == {"key": "TEST"}
+        assert fields["summary"] == "S"
+        assert fields["issuetype"] == {"name": "Bug"}
+        assert fields["description"] == _minimal_adf_doc("D")
+
+
+class TestJiraCreateIssueHttpError:
+    def test_create_issue_raises_jira_error_when_post_returns_non_ok(self, jira, monkeypatch):
+        monkeypatch.setattr(pyhelper_general, "sleep", lambda _: None)
+        err_text = '{"detail":"Method \'GET\' is not supported."}'
+        resp = _mock_error_response(405, err_text, url="https://example/rest/api/3/issue")
+
+        with patch.object(jira.connection._session, "post", return_value=resp):
+            with pytest.raises(JIRAError) as exc_info:
+                jira.create_issue(
+                    project="TEST",
+                    summary="S",
+                    description="D",
+                    issue_type="Bug",
+                )
+
+        assert exc_info.value.text == err_text
+        assert exc_info.value.status_code == 405
+        assert exc_info.value.url == resp.url
+
+
+class TestJiraAddLabelsHttpError:
+    @pytest.mark.parametrize(
+        "status_code,err_text",
+        [
+            (400, "Field 'labels' cannot be set. It is not on the appropriate screen, or unknown."),
+            (403, "You do not have permission to edit this issue."),
+        ],
+    )
+    def test_add_labels_to_issue_returns_false_on_recoverable_http_error(
+        self,
+        fake_issue_id,
+        jira,
+        caplog,
+        status_code,
+        err_text,
+    ):
+        resp = _mock_error_response(status_code, err_text)
+        with patch.object(jira.connection._session, "put", return_value=resp):
+            issue, applied = jira.add_labels_to_issue(issue_id_or_key=fake_issue_id, labels=["x"])
+        assert applied is False
+        assert issue.id == fake_issue_id
+        assert "Failed to add labels" in caplog.text
+        assert "project configuration, missing permissions, or the Jira user" in caplog.text
+
+
+class TestJiraRemoveLabelsHttpError:
+    @pytest.mark.parametrize(
+        "status_code,err_text",
+        [
+            (400, "Field 'labels' cannot be set. It is not on the appropriate screen, or unknown."),
+            (403, "You do not have permission to edit this issue."),
+        ],
+    )
+    def test_remove_labels_from_issue_returns_false_on_recoverable_http_error(
+        self,
+        fake_issue_id,
+        jira,
+        caplog,
+        status_code,
+        err_text,
+    ):
+        resp = _mock_error_response(status_code, err_text)
+        with patch.object(jira.connection._session, "put", return_value=resp):
+            issue, applied = jira.remove_labels_from_issue(issue_id_or_key=fake_issue_id, labels=["x"])
+        assert applied is False
+        assert issue.id == fake_issue_id
+        assert "Failed to remove labels" in caplog.text
+        assert "project configuration, missing permissions, or the Jira user" in caplog.text
 
 
 class TestJiraApiRespondsWithPermissionFailure:
@@ -83,19 +218,6 @@ def _minimal_adf_doc(plain_text: str) -> dict:
 
 
 class TestCreateIssueAdfDescription:
-    @pytest.fixture
-    def mock_jira(self, monkeypatch):
-        monkeypatch.setattr(Jira, "__init__", lambda self, jira_config_path=None: None)
-        jira = Jira()
-        jira.url = DEFAULT_JIRA_SERVER_URL
-        jira.connection = MagicMock()
-
-        created_issue = MagicMock()
-        created_issue.key = "TEST-1"
-        jira.connection.create_issue.return_value = created_issue
-
-        return jira
-
     def test_create_issue_passes_adf_description_for_jira_cloud_rest_v3(self, mock_jira):
         plain = "Line one\nLine two"
         mock_jira.create_issue(
@@ -104,8 +226,10 @@ class TestCreateIssueAdfDescription:
             description=plain,
             issue_type="Bug",
         )
-        mock_jira.connection.create_issue.assert_called_once()
-        fields = mock_jira.connection.create_issue.call_args[0][0]
+        mock_jira.connection._session.post.assert_called_once()
+        call_kwargs = mock_jira.connection._session.post.call_args.kwargs
+        assert call_kwargs["headers"]["Content-Type"] == "application/json"
+        fields = call_kwargs["json"]["fields"]
         assert fields["description"] == _minimal_adf_doc(plain)
 
     def test_create_issue_sanitizes_empty_description_text_node(self, mock_jira):
@@ -115,24 +239,12 @@ class TestCreateIssueAdfDescription:
             description="",
             issue_type="Bug",
         )
-        fields = mock_jira.connection.create_issue.call_args[0][0]
+        call_kwargs = mock_jira.connection._session.post.call_args.kwargs
+        fields = call_kwargs["json"]["fields"]
         assert fields["description"]["content"][0]["content"][0]["text"] == " "
 
 
 class TestCreateIssueEpicSearch:
-    @pytest.fixture
-    def mock_jira(self, monkeypatch):
-        monkeypatch.setattr(Jira, "__init__", lambda self, jira_config_path=None: None)
-        jira = Jira()
-        jira.url = DEFAULT_JIRA_SERVER_URL
-        jira.connection = MagicMock()
-
-        created_issue = MagicMock()
-        created_issue.key = "TEST-1"
-        jira.connection.create_issue.return_value = created_issue
-
-        return jira
-
     def test_epic_lookup_uses_unquoted_issue_key_for_cloud_compatibility(self, mock_jira):
         epic_issue = MagicMock()
         epic_issue.id = "20001"

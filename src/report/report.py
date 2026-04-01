@@ -2,10 +2,12 @@ import os
 import shutil
 from datetime import datetime
 from typing import Any
+from typing import Literal
 from typing import Optional
 from typing import Tuple
 
 import jira
+from jira.exceptions import JIRAError
 from simple_logger.logger import get_logger
 
 from src.objects.configuration import Configuration
@@ -55,7 +57,11 @@ class Report:
             if open_bugs:
                 for bug in open_bugs:
                     self.logger.info(f"Adding retrigger label to issue: {bug}")
-                    self.add_retrigger_job_label(jira=firewatch_config.jira, issue_id=bug)
+                    self.add_retrigger_job_label(
+                        jira=firewatch_config.jira,
+                        issue_id=bug,
+                        job=job,
+                    )
             else:
                 self.logger.warning(f"No open bugs found for retriggered job: {job.name}")
 
@@ -367,6 +373,24 @@ class Report:
             matching_rules = sorted(matching_rules, key=lambda x: x.step.__eq__(failure.step), reverse=True)
         return matching_rules
 
+    def _safe_jira_comment(
+        self,
+        jira: Jira,
+        issue_id: str,
+        comment: str | dict[str, Any],
+        *,
+        context: str,
+    ) -> None:
+        try:
+            jira.comment(issue_id=issue_id, comment=comment)
+        except JIRAError as err:
+            self.logger.warning(
+                "Could not add %s to %s: %s",
+                context,
+                issue_id,
+                err.text,
+            )
+
     def add_passing_job_comment(self, job: Job, jira: Jira, issue_id: str) -> None:
         """
         Used to make a comment on a Jira issue that is open but has had a passing job since the issue was filed.
@@ -410,7 +434,48 @@ class Report:
                 inline_text("."),
             ),
         )
-        jira.comment(issue_id=issue_id, comment=body)
+        self._safe_jira_comment(
+            jira,
+            issue_id,
+            body,
+            context="passing-job comment",
+        )
+
+    def _try_jira_labels(
+        self,
+        jira: Jira,
+        issue_id: str,
+        labels: list[str],
+        *,
+        context: Literal["passing-job", "retrigger"],
+    ) -> bool:
+        try:
+            _, applied = jira.add_labels_to_issue(
+                issue_id_or_key=issue_id,
+                labels=labels,
+            )
+        except JIRAError as err:
+            if context == "passing-job":
+                self.logger.warning(
+                    "Could not add passing-job label to %s: %s",
+                    issue_id,
+                    err.text,
+                )
+            else:
+                self.logger.warning(
+                    "Could not add retrigger label to %s: %s",
+                    issue_id,
+                    err.text,
+                )
+            return False
+        if not applied:
+            if context == "passing-job":
+                self.logger.warning(
+                    "Could not add passing-job label to %s (label not applied by Jira).",
+                    issue_id,
+                )
+            return False
+        return True
 
     def add_passing_job_label(self, jira: Jira, issue_id: str) -> None:
         """
@@ -423,26 +488,49 @@ class Report:
         Returns:
             None
         """
-        jira.add_labels_to_issue(
-            issue_id_or_key=issue_id,
-            labels=[JOB_PASSED_SINCE_TICKET_CREATED_LABEL],
+        self._try_jira_labels(
+            jira,
+            issue_id,
+            [JOB_PASSED_SINCE_TICKET_CREATED_LABEL],
+            context="passing-job",
         )
 
-    def add_retrigger_job_label(self, jira: Jira, issue_id: str) -> None:
+    def _retrigger_fallback_comment_body(self, job: Job) -> str:
+        return (
+            f"firewatch could not add the label {JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL}. "
+            f"This job build was a retrigger in the current week. "
+            f"Prow run: https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id} "
+            f"Build ID: {job.build_id}"
+        )
+
+    def add_retrigger_job_label(self, jira: Jira, issue_id: str, job: Job) -> None:
         """
         Used to add a label on a Jira issue that the latest build is retrigger of job.
 
         Args:
             jira (Jira): Jira object.
             issue_id (str): Issue ID of the open issue to comment on.
+            job (Job): Job object for fallback prow link text if the label cannot be set.
 
         Returns:
             None
         """
-        jira.add_labels_to_issue(
-            issue_id_or_key=issue_id,
-            labels=[JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL],
-        )
+        if not self._try_jira_labels(
+            jira,
+            issue_id,
+            [JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL],
+            context="retrigger",
+        ):
+            self.logger.warning(
+                "Adding fallback comment on %s because the retrigger label could not be applied.",
+                issue_id,
+            )
+            self._safe_jira_comment(
+                jira,
+                issue_id,
+                self._retrigger_fallback_comment_body(job),
+                context="fallback retrigger comment",
+            )
 
     def add_duplicate_comment(
         self,
