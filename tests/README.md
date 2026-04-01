@@ -43,16 +43,32 @@ python -m unittest tests.unittests.objects.job.test_firewatch_objects_job_check_
 
 ## Running the E2E Tests
 
-To run the E2E tests, you can also use the `pytest` framework. The following command will discover and run all the tests in the `tests/e2e` directory. This directory contains end-to-end (E2E) tests for the Firewatch project. The tests are designed to ensure that the entire system works as expected, from start to finish.
+E2E tests live under `tests/e2e`. They exercise the `firewatch` CLI against a real Jira project and download real job artifacts for a pinned build, so they are not part of the default `tox` run (which only collects `tests/unittests` per `pyproject.toml`).
+
+Set these environment variables before running:
+
+- `JIRA_TOKEN` (required)
+- `JIRA_SERVER_URL` (required)
+- `JIRA_EMAIL` (optional; forwarded into the generated Jira config when present)
 
 ```sh
 pytest tests/e2e
 ```
 
-## Mocking
+Or select by marker:
 
-The tests make extensive use of the `pytest` and `unittest.mock` libraries to mock external dependencies such as the JIRA API and the file system. This allows the tests to run in isolation and ensures that they are not affected by external factors.
+```sh
+pytest -m e2e tests/e2e
+```
+
+In GitHub Actions, the `e2e-tests` workflow (`workflow_dispatch` only) runs the same command and expects repository secrets `JIRA_TOKEN`, `JIRA_SERVER_URL`, and optionally `JIRA_EMAIL`.
+
+## Mocking (unit tests vs E2E)
+
+Unit tests under `tests/unittests` use `pytest` and `unittest.mock` to mock external systems such as the Jira API and the filesystem where appropriate, so they run in CI without secrets.
+
+E2E tests call the real Jira API and perform real downloads for the first phase of the flow; only the second phase monkeypatches `Job` log and JUnit download paths to simulate a passing run. Do not assume E2E tests mock Jira end to end.
 
 ## Adding New Tests
 
-To add new tests, create a new test file in the appropriate subdirectory and follow the existing structure. Use the `pytest` framework and the `unittest.mock` library as needed.
+For unit tests, add files under `tests/unittests` following the existing layout and use mocks as needed. For E2E, add modules under `tests/e2e`, mark tests with `@pytest.mark.e2e` (or module-level `pytestmark = pytest.mark.e2e`), and document any new environment variables or pinned job data in this file.

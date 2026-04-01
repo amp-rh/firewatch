@@ -6,11 +6,16 @@ from typing import Optional
 from typing import Tuple
 
 import jira
+from jira.exceptions import JIRAError
 from simple_logger.logger import get_logger
 
 from src.objects.configuration import Configuration
 from src.objects.failure import Failure
 from src.objects.failure_rule import FailureRule
+from src.objects.jira_adf import adf_doc
+from src.objects.jira_adf import heading
+from src.objects.jira_adf import inline_text
+from src.objects.jira_adf import paragraph
 from src.objects.jira_base import Jira
 from src.objects.job import Job
 from src.report.constants import JOB_PASSED_SINCE_TICKET_CREATED_LABEL, JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL
@@ -51,7 +56,11 @@ class Report:
             if open_bugs:
                 for bug in open_bugs:
                     self.logger.info(f"Adding retrigger label to issue: {bug}")
-                    self.add_retrigger_job_label(jira=firewatch_config.jira, issue_id=bug)
+                    self.add_retrigger_job_label(
+                        jira=firewatch_config.jira,
+                        issue_id=bug,
+                        job=job,
+                    )
             else:
                 self.logger.warning(f"No open bugs found for retriggered job: {job.name}")
 
@@ -363,6 +372,24 @@ class Report:
             matching_rules = sorted(matching_rules, key=lambda x: x.step.__eq__(failure.step), reverse=True)
         return matching_rules
 
+    def _safe_jira_comment(
+        self,
+        jira: Jira,
+        issue_id: str,
+        comment: str | dict[str, Any],
+        *,
+        context: str,
+    ) -> None:
+        try:
+            jira.comment(issue_id=issue_id, comment=comment)
+        except JIRAError as err:
+            self.logger.warning(
+                "Could not add %s to %s: %s",
+                context,
+                issue_id,
+                err.text,
+            )
+
     def add_passing_job_comment(self, job: Job, jira: Jira, issue_id: str) -> None:
         """
         Used to make a comment on a Jira issue that is open but has had a passing job since the issue was filed.
@@ -375,20 +402,43 @@ class Report:
         Returns:
             None
         """
-        comment = f"""
-                                h4. *JOB RECENTLY PASSED*
-
-                                This job has been run successfully since this bug was filed. Please verify that this bug is still relevant and close it if needed.
-
-                                *Passing Run Link:* https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}
-                                *Passing Run Build ID:* {job.build_id}
-
-
-                                _Please add the "ignore-passing-notification" tag to this bug to avoid future passing job notifications._
-
-                                This comment was created using [firewatch in OpenShift CI|https://github.com/CSPI-QE/firewatch].
-                            """
-        jira.comment(issue_id=issue_id, comment=comment)
+        prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
+        fw_url = "https://github.com/CSPI-QE/firewatch"
+        body = adf_doc(
+            heading(4, inline_text("JOB RECENTLY PASSED", bold=True)),
+            paragraph(
+                inline_text(
+                    "This job has been run successfully since this bug was filed. "
+                    "Please verify that this bug is still relevant and close it if needed.",
+                ),
+            ),
+            paragraph(
+                inline_text("Passing Run Link: ", bold=True),
+                inline_text(prow_url, url=prow_url),
+            ),
+            paragraph(
+                inline_text("Passing Run Build ID: ", bold=True),
+                inline_text(job.build_id or ""),
+            ),
+            paragraph(
+                inline_text(
+                    'Please add the "ignore-passing-notification" label to this bug to avoid future '
+                    "passing job notifications.",
+                    italic=True,
+                ),
+            ),
+            paragraph(
+                inline_text("This comment was created using "),
+                inline_text("firewatch in OpenShift CI", url=fw_url),
+                inline_text("."),
+            ),
+        )
+        self._safe_jira_comment(
+            jira,
+            issue_id,
+            body,
+            context="passing-job comment",
+        )
 
     def add_passing_job_label(self, jira: Jira, issue_id: str) -> None:
         """
@@ -401,26 +451,66 @@ class Report:
         Returns:
             None
         """
-        jira.add_labels_to_issue(
-            issue_id_or_key=issue_id,
-            labels=[JOB_PASSED_SINCE_TICKET_CREATED_LABEL],
+        try:
+            _, applied = jira.add_labels_to_issue(
+                issue_id_or_key=issue_id,
+                labels=[JOB_PASSED_SINCE_TICKET_CREATED_LABEL],
+            )
+            if not applied:
+                self.logger.warning(
+                    "Could not add passing-job label to %s (label not applied by Jira).",
+                    issue_id,
+                )
+        except JIRAError as err:
+            self.logger.warning(
+                "Could not add passing-job label to %s: %s",
+                issue_id,
+                err.text,
+            )
+
+    def _retrigger_fallback_comment_body(self, job: Job) -> str:
+        return (
+            f"firewatch could not add the label {JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL}. "
+            f"This job build was a retrigger in the current week. "
+            f"Prow run: https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id} "
+            f"Build ID: {job.build_id}"
         )
 
-    def add_retrigger_job_label(self, jira: Jira, issue_id: str) -> None:
+    def add_retrigger_job_label(self, jira: Jira, issue_id: str, job: Job) -> None:
         """
         Used to add a label on a Jira issue that the latest build is retrigger of job.
 
         Args:
             jira (Jira): Jira object.
             issue_id (str): Issue ID of the open issue to comment on.
+            job (Job): Job object for fallback prow link text if the label cannot be set.
 
         Returns:
             None
         """
-        jira.add_labels_to_issue(
-            issue_id_or_key=issue_id,
-            labels=[JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL],
-        )
+        label_ok = False
+        try:
+            _, label_ok = jira.add_labels_to_issue(
+                issue_id_or_key=issue_id,
+                labels=[JOB_RETRIGGERED_IN_CURRENT_WEEK_LABEL],
+            )
+        except JIRAError as err:
+            self.logger.warning(
+                "Could not add retrigger label to %s: %s",
+                issue_id,
+                err.text,
+            )
+        if not label_ok:
+            self.logger.warning(
+                "Adding fallback comment on %s because the retrigger label could not be applied.",
+                issue_id,
+            )
+            self._safe_jira_comment(
+                jira,
+                issue_id,
+                self._retrigger_fallback_comment_body(job),
+                context="fallback retrigger comment",
+            )
 
     def add_duplicate_comment(
         self,
@@ -445,21 +535,54 @@ class Report:
         Returns:
             None
         """
-        comment = f"""
-                        A duplicate failure was identified in a recent run of the {job.name} job:
-
-                        *Link:* https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}
-                        *Build ID:* {job.build_id}
-                        *Classification:* {classification}
-                        *Failed Step:* {failed_step}
-                        {"*Failed Test:* " + failed_test_name if failed_test_name else ""}
-
-                        Please see the link provided above to determine if this is the same issue. If it is not, please manually file a new bug for this issue.
-
-                        This comment was created using [firewatch in OpenShift CI|https://github.com/CSPI-QE/firewatch]
-                    """
-
-        jira.comment(issue_id=issue_id, comment=comment)
+        link = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
+        fw_url = "https://github.com/CSPI-QE/firewatch"
+        blocks: list[dict[str, Any]] = [
+            paragraph(
+                inline_text(
+                    f"A duplicate failure was identified in a recent run of the {job.name} job:",
+                ),
+            ),
+            paragraph(
+                inline_text("Link: ", bold=True),
+                inline_text(link, url=link),
+            ),
+            paragraph(
+                inline_text("Build ID: ", bold=True),
+                inline_text(job.build_id or ""),
+            ),
+            paragraph(
+                inline_text("Classification: ", bold=True),
+                inline_text(classification),
+            ),
+            paragraph(
+                inline_text("Failed Step: ", bold=True),
+                inline_text(failed_step),
+            ),
+        ]
+        if failed_test_name:
+            blocks.append(
+                paragraph(
+                    inline_text("Failed Test: ", bold=True),
+                    inline_text(failed_test_name),
+                ),
+            )
+        blocks.extend(
+            [
+                paragraph(
+                    inline_text(
+                        "Please see the link provided above to determine if this is the same issue. "
+                        "If it is not, please manually file a new bug for this issue.",
+                    ),
+                ),
+                paragraph(
+                    inline_text("This comment was created using "),
+                    inline_text("firewatch in OpenShift CI", url=fw_url),
+                    inline_text("."),
+                ),
+            ],
+        )
+        jira.comment(issue_id=issue_id, comment=adf_doc(*blocks))
 
     def relate_issues(self, issues: list[str], jira: Jira) -> None:
         """

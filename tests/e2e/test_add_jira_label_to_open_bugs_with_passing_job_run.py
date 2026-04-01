@@ -27,6 +27,8 @@ from src.report.constants import JOB_PASSED_SINCE_TICKET_CREATED_LABEL
 
 logger = simple_logger.logger.get_logger(__name__)
 
+pytestmark = pytest.mark.e2e
+
 
 @pytest.fixture
 def job_name():
@@ -78,7 +80,7 @@ def cleanup(request, issue_keys_cache_key, jira, target_label):
         issue = jira.get_issue_by_id_or_key(issue_key)
         if issue_has_label(issue, target_label):
             logger.info(f'removing label "{target_label}" from {issue_key}')
-            remove_label_from_issue(issue, target_label)
+            jira.remove_labels_from_issue(issue_key, [target_label])
 
 
 def test_add_jira_label_to_open_bugs_with_passing_job_run(
@@ -109,7 +111,7 @@ def test_add_jira_label_to_open_bugs_with_passing_job_run(
 
     logger.info("fetching Jira issues")
     issues: list[Issue] = [jira.get_issue_by_id_or_key(k) for k in issue_keys_from_stdout]
-    assert not any_issue_has_target_label(issues)
+    assert not any_issue_has_target_label(issues, target_label)
     logger.info(f'verified that "{target_label}" is not set on identified issues')
 
     logger.info(
@@ -141,16 +143,12 @@ def cli_result_logged_job_failure_in_stdout(result, job_name) -> bool:
     return f"Failure in {job_name}" in result.stdout
 
 
-def any_issue_has_target_label(issues):
+def any_issue_has_target_label(issues, target_label):
     return any(filter(lambda x: issue_has_label(x, target_label), issues))
 
 
 def cache_issue_keys(issue_keys_from_stdout, request):
     request.config.cache.set("issues/keys", issue_keys_from_stdout)
-
-
-def remove_label_from_issue(issue, target_label):
-    issue.update(update={"labels": [{"remove": target_label}]})
 
 
 def issue_has_label(issue, target_label):

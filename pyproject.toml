@@ -96,7 +96,8 @@ testpaths = [
     "tests/unittests"
 ]
 markers = [
-    "unittests"
+    "unittests",
+    "e2e: end-to-end tests (real Jira and network; run with pytest tests/e2e)",
 ]
 filterwarnings = [
     "ignore::pytest.PytestCollectionWarning"
