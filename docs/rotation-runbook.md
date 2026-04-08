@@ -1,9 +1,9 @@
 # Firewatch Jira API token rotation (manual)
 
-**Service identity:** firewatch@redhat.com (display name: firewatch tool)  
-**Jira:** https://redhat.atlassian.net  
-**Vault:** https://vault.ci.openshift.org  
-**KV path:** `kv/selfservice/firewatch-tool/jira-credentials`  
+**Service identity:** `firewatch@redhat.com` (display name: firewatch tool)
+**Jira:** <https://redhat.atlassian.net>
+**Vault:** <https://vault.ci.openshift.org>
+**KV path:** `kv/selfservice/firewatch-tool/jira-credentials`
 **Related:** INTEROP-8976
 
 Secret fields: `email`, `access_token`, `expires_at` (ISO 8601). Tokens are created in the Atlassian account UI; CI consumes them via `firewatch jira-config-gen`.
@@ -23,7 +23,7 @@ Atlassian Cloud API tokens have a **maximum lifetime of one year** (policy since
 ## 2. Prerequisites
 
 - Vault CLI installed and authenticated against `https://vault.ci.openshift.org` with permission to read and write `kv/selfservice/firewatch-tool/jira-credentials`
-- Ability to sign in to the Atlassian account for **firewatch@redhat.com** (or coordinate with someone who can)
+- Ability to sign in to the Atlassian account for **`firewatch@redhat.com`** (or coordinate with someone who can)
 - Access to **#ocp-ci-firewatch-tool** on Slack for alerts and confirmation
 - A way to trigger or observe a CI job that runs firewatch with Jira (for verification)
 
@@ -90,8 +90,8 @@ If the new token fails after the Vault update, the **previous token stays valid 
 | Issue | What to check |
 |-------|----------------|
 | **Vault denied** | Your Vault identity needs write access to `kv/selfservice/firewatch-tool/jira-credentials`. Ask platform or secret owners to grant KV access for that path. |
-| **Jira 401/403 after rotation** | Token typo when pasting into Vault; wrong account (must be firewatch@redhat.com); token revoked early; or Jira/Atlassian incident. Regenerate token and re-`put` if needed. |
+| **Jira 401/403 after rotation** | Token typo when pasting into Vault; wrong account (must be `firewatch@redhat.com`); token revoked early; or Jira/Atlassian incident. Regenerate token and re-`put` if needed. |
 | **Token scope / product access** | Ensure the Atlassian user still has access to **redhat.atlassian.net** and that the token was created under that account. |
-| **Account locked or login blocked** | Recover access to firewatch@redhat.com via your org’s Atlassian/Google process before rotating. |
+| **Account locked or login blocked** | Recover access to `firewatch@redhat.com` via your org’s Atlassian/Google process before rotating. |
 
 For process or ownership questions, use **#ocp-ci-firewatch-tool** and **INTEROP-8976**.

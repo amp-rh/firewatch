@@ -1,8 +1,8 @@
 # Firewatch Jira credentials (Vault KV)
 
-**Vault:** `https://vault.ci.openshift.org`  
-**Path:** `kv/selfservice/firewatch-tool/jira-credentials`  
-**Service identity:** `firewatch@redhat.com` (display name: firewatch tool)  
+**Vault:** `https://vault.ci.openshift.org`
+**Path:** `kv/selfservice/firewatch-tool/jira-credentials`
+**Service identity:** `firewatch@redhat.com` (display name: firewatch tool)
 **Jira:** `https://redhat.atlassian.net`
 
 Consumers mount this secret and run:
@@ -44,7 +44,7 @@ This overwrites the secret at that path with exactly these keys. Other keys on t
 
 ## Migration: add `expires_at` without losing existing fields
 
-**Preferred: patch (KV v2)**
+### Preferred: patch (KV v2)
 
 Adds or updates only `expires_at`; leaves `email` and `access_token` as they are.
 
@@ -54,11 +54,11 @@ vault kv patch kv/selfservice/firewatch-tool/jira-credentials expires_at='2027-0
 
 If `patch` is unavailable, use one of the options below.
 
-**Full put with known values**
+### Full put with known values
 
 Re-run the full `vault kv put` from the previous section with the same `email` and `access_token` values plus the new `expires_at`.
 
-**Vault UI**
+### Vault UI
 
 Open the secret, add key `expires_at` with value `YYYY-MM-DD`, save. Confirm `email` and `access_token` are unchanged.
 

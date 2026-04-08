@@ -243,7 +243,7 @@ class Report:
                     self._slack_duplicate(
                         issue_key=bug,
                         job=job,
-                        rule=pair["rule"],
+                        rule=pair["rule"],  # type: ignore[arg-type]
                         firewatch_config=firewatch_config,
                     )
             # If duplicates are not found, file a bug
@@ -267,7 +267,7 @@ class Report:
                     issue_key=jira_issue.key,
                     summary=summary,
                     job=job,
-                    rule=pair["rule"],
+                    rule=pair["rule"],  # type: ignore[arg-type]
                     firewatch_config=firewatch_config,
                 )
 
@@ -681,10 +681,7 @@ class Report:
         if not rule.slack_channel:
             return
         prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
-        text = (
-            f"[{issue_key}] {summary}\n"
-            f"{prow_url}"
-        )
+        text = f"[{issue_key}] {summary}\n{prow_url}"
         self._notify_slack(rule.slack_channel, text, firewatch_config)
 
     def _slack_duplicate(
@@ -697,11 +694,7 @@ class Report:
         if not rule.slack_channel:
             return
         prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
-        text = (
-            f"Duplicate failure detected on {issue_key}\n"
-            f"Job: {job.name} | Build: {job.build_id}\n"
-            f"{prow_url}"
-        )
+        text = f"Duplicate failure detected on {issue_key}\nJob: {job.name} | Build: {job.build_id}\n{prow_url}"
         self._notify_slack(rule.slack_channel, text, firewatch_config)
 
     def _slack_success(
