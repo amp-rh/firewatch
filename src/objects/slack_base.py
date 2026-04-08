@@ -92,14 +92,11 @@ class SlackClient:
 
     @staticmethod
     def post_webhook(webhook_url: str, text: str) -> None:
-        try:
-            LOGGER.info(f"Sending Slack webhook notification: {text[:80]}...")
-            response = http_requests.post(
-                webhook_url,
-                json={"text": text},
-                headers={"Content-Type": "application/json"},
-                timeout=30,
-            )
-            response.raise_for_status()
-        except http_requests.RequestException as e:
-            LOGGER.error(f"Slack webhook request failed: {e}")
+        LOGGER.info(f"Sending Slack webhook notification: {text[:80]}...")
+        response = http_requests.post(
+            webhook_url,
+            json={"text": text},
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        response.raise_for_status()

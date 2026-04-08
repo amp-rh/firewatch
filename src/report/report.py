@@ -661,14 +661,14 @@ class Report:
         text: str,
         firewatch_config: Configuration,
     ) -> None:
-        if firewatch_config.slack_webhook_url:
-            SlackClient.post_webhook(firewatch_config.slack_webhook_url, text)
-        elif firewatch_config.slack_bot_token:
-            try:
+        try:
+            if firewatch_config.slack_webhook_url:
+                SlackClient.post_webhook(firewatch_config.slack_webhook_url, text)
+            elif firewatch_config.slack_bot_token:
                 client = SlackClient(token=firewatch_config.slack_bot_token)
                 client.send_notification(channel=channel, text=text)
-            except (ValueError, Exception) as exc:
-                self.logger.warning("Slack notification failed: %s", exc)
+        except Exception as exc:
+            self.logger.warning("Slack notification failed: %s", exc)
 
     def _slack_new_issue(
         self,

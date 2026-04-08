@@ -11,6 +11,8 @@ from typing import Any
 import hvac
 import requests
 
+from src.objects.slack_base import SlackClient
+
 DEFAULT_VAULT_ADDR = "https://vault.ci.openshift.org"
 DEFAULT_VAULT_KV_PATH = "kv/selfservice/firewatch-tool/jira-credentials"
 NOTIFY_THRESHOLDS_DAYS = (30, 14, 7, 3, 1)
@@ -69,16 +71,6 @@ def days_until_expiry(expiry: date, today: date | None = None) -> int:
 
 def should_notify_approaching(days_left: int) -> bool:
     return 1 <= days_left <= max(NOTIFY_THRESHOLDS_DAYS)
-
-
-def slack_post(webhook_url: str, text: str) -> None:
-    r = requests.post(
-        webhook_url,
-        json={"text": text},
-        headers={"Content-Type": "application/json"},
-        timeout=30,
-    )
-    r.raise_for_status()
 
 
 def build_approaching_message(
@@ -178,17 +170,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if days_left < 0:
             msg = build_expired_message(args.vault_kv_path, expiry, abs(days_left))
-            slack_post(args.slack_webhook_url, msg)
+            SlackClient.post_webhook(args.slack_webhook_url, msg)
             eprint("sent Slack: expired token alert")
             return 2
         if days_left == 0:
             msg = build_expires_today_message(args.vault_kv_path, expiry)
-            slack_post(args.slack_webhook_url, msg)
+            SlackClient.post_webhook(args.slack_webhook_url, msg)
             eprint("sent Slack: expires today alert")
             return 2
         if should_notify_approaching(days_left):
             msg = build_approaching_message(args.vault_kv_path, days_left, expiry)
-            slack_post(args.slack_webhook_url, msg)
+            SlackClient.post_webhook(args.slack_webhook_url, msg)
             eprint("sent Slack: approaching expiry")
         else:
             eprint("no notification (outside alert window)")
