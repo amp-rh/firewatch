@@ -1,4 +1,5 @@
 import pytest
+import requests
 from unittest.mock import MagicMock, patch
 from slack_sdk.errors import SlackApiError
 from slack_sdk import WebClient
@@ -49,3 +50,29 @@ def test_send_notification_failure(mock_chat_post, slack_client):
     slack_client.send_notification("#invalid-channel", "test message")
 
     mock_chat_post.assert_called_once_with(channel="#invalid-channel", text="test message")
+
+
+@patch("src.objects.slack_base.http_requests.post")
+def test_post_webhook_success(mock_post):
+    mock_response = MagicMock()
+    mock_post.return_value = mock_response
+    webhook_url = "https://hooks.slack.com/services/T00/B00/xxx"
+    text = "notification body"
+
+    SlackClient.post_webhook(webhook_url, text)
+
+    mock_post.assert_called_once_with(
+        webhook_url,
+        json={"text": text},
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
+    mock_response.raise_for_status.assert_called_once_with()
+
+
+@patch("src.objects.slack_base.http_requests.post")
+def test_post_webhook_failure(mock_post):
+    mock_post.side_effect = requests.exceptions.HTTPError("bad response")
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        SlackClient.post_webhook("https://hooks.slack.com/services/T00/B00/xxx", "text")

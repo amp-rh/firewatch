@@ -135,14 +135,14 @@ def validate_verbose_test_failure_reporting_ticket_limit(
     help="Slack bot token for notifications. Defaults to $SLACK_BOT_TOKEN.",
     required=False,
     type=click.STRING,
-    default=None,
+    envvar="SLACK_BOT_TOKEN",
 )
 @click.option(
     "--slack-webhook-url",
     help="Slack incoming webhook URL for notifications. Defaults to $SLACK_WEBHOOK_URL.",
     required=False,
     type=click.STRING,
-    default=None,
+    envvar="SLACK_WEBHOOK_URL",
 )
 @click.option(
     "--pdb",

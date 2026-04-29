@@ -17,6 +17,7 @@
   - [`jira_assignee`](#jira_assignee)
   - [`jira_priority`](#jira_priority)
   - [`jira_security_level`](#jira_security_level)
+  - [`slack_channel`](#slack_channel)
   - [`ignore`](#ignore)
   - [`group`](#group)
   - [Using a base config file](#using-a-base-config-file)
@@ -33,7 +34,7 @@ Firewatch was designed to allow for users to define which Jira issues get create
 {
   "failure_rules":
     [
-        {"step": "exact-step-name", "failure_type": "pod_failure", "classification": "Infrastructure", "jira_project": "!default", "jira_component": ["some-component"], "jira_assignee": "some-user@redhat.com", "jira_security_level": "Restricted"},
+        {"step": "exact-step-name", "failure_type": "pod_failure", "classification": "Infrastructure", "jira_project": "!default", "jira_component": ["some-component"], "jira_assignee": "some-user@redhat.com", "jira_security_level": "Restricted", "slack_channel": "#my-channel"},
         {"step": "*partial-name*", "failure_type": "all", "classification":  "Misc.", "jira_project": "OTHER", "jira_component": ["component-1", "component-2", "!default"], "jira_priority": "major", "group": {"name": "some-group", "priority": 1}},
         {"step": "*ends-with-this", "failure_type": "test_failure", "classification": "Test failures", "jira_epic": "!default", "jira_additional_labels": ["test-label-1", "test-label-2", "!default"], "group": {"name": "some-group", "priority": 2}},
         {"step": "*ignore*", "failure_type": "test_failure", "classification": "NONE", "jira_project": "NONE", "ignore": "true"},
@@ -43,7 +44,7 @@ Firewatch was designed to allow for users to define which Jira issues get create
   #OPTIONAL
   "success_rules":
     [
-      {"jira_project": "PROJECT", "jira_epic": "PROJECT-123", "jira_component": ["some-component"], "jira_affects_version": "!default", "jira_assignee": "some-user@redhat.com", "jira_priority": "major", "jira_security_level": "Restricted", "jira_additional_labels": ["test-label-1", "test-label-2", "!default"]},
+      {"jira_project": "PROJECT", "jira_epic": "PROJECT-123", "jira_component": ["some-component"], "jira_affects_version": "!default", "jira_assignee": "some-user@redhat.com", "jira_priority": "major", "jira_security_level": "Restricted", "jira_additional_labels": ["test-label-1", "test-label-2", "!default"], "slack_channel": "#my-channel"},
       {"jira_project": "!default"},
     ]
 }
@@ -75,6 +76,7 @@ The firewatch configuration is a list of rules, each rule is defined using the f
 - [`jira_assignee`](#jiraassignee)
 - [`jira_priority`](#jirapriority)
 - [`jira_security_level`](#jirasecuritylevel)
+- [`slack_channel`](#slackchannel)
 - [`ignore`](#ignore)
 - [`group`](#group)
 
@@ -93,6 +95,7 @@ The firewatch configuration is a list of rules, each rule is defined using the f
 - [`jira_assignee`](#jiraassignee)
 - [`jira_priority`](#jirapriority)
 - [`jira_security_level`](#jirasecuritylevel)
+- [`slack_channel`](#slackchannel)
 
 ## Rule Configuration Value Definitions
 
@@ -300,6 +303,23 @@ The security level desired for a bug created using this rule.
 **Notes:**
 
 - If you are using Red Hat's Jira server, the list of available security levels can be found at [Red Hat Jira Security Levels](https://issues.redhat.com/secure/ShowConstantsHelp.jspa?decorator=popup#SecurityLevels).
+
+---
+
+### `slack_channel`
+
+The Slack channel to notify after Firewatch creates or updates a Jira issue for a matching rule. Use a channel name such as `#my-channel`. If the field is absent or empty, no Slack notification is sent for that rule.
+
+**Example:**
+
+- `"slack_channel": "#my-channel"`
+- `"slack_channel": "!default"`
+  - `$FIREWATCH_DEFAULT_SLACK_CHANNEL` environment variable must be defined.
+  - Example: `export FIREWATCH_DEFAULT_SLACK_CHANNEL="#my-channel"`
+
+**Notes:**
+
+- Slack integration requires either `--slack-bot-token` or `$SLACK_BOT_TOKEN`, or `--slack-webhook-url` or `$SLACK_WEBHOOK_URL`, to be configured when running Firewatch.
 
 ---
 
