@@ -170,6 +170,8 @@ def test_report_success_logs_warning_when_create_issue_raises_jira_error(
     config = MagicMock()
     config.success_rules = [rule]
     config.additional_labels_file = None
+    config.slack_webhook_url = None
+    config.slack_bot_token = None
     jira = MagicMock()
     jira.create_issue.side_effect = JIRAError(
         "Method Not Allowed",
@@ -200,6 +202,8 @@ def test_report_success_continues_next_rule_after_create_issue_failure(
     config = MagicMock()
     config.success_rules = [rule_a, rule_b]
     config.additional_labels_file = None
+    config.slack_webhook_url = None
+    config.slack_bot_token = None
     jira = MagicMock()
     jira.create_issue.side_effect = [
         JIRAError("fail", 405, "https://example/rest/api/3/issue"),

@@ -670,6 +670,9 @@ class Report:
         except Exception as exc:
             self.logger.warning("Slack notification failed: %s", exc)
 
+    def _should_notify_slack(self, rule: Rule, firewatch_config: Configuration) -> bool:
+        return bool(rule.slack_channel or firewatch_config.slack_webhook_url)
+
     def _slack_new_issue(
         self,
         issue_key: str,
@@ -678,11 +681,11 @@ class Report:
         rule: Rule,
         firewatch_config: Configuration,
     ) -> None:
-        if not rule.slack_channel:
+        if not self._should_notify_slack(rule, firewatch_config):
             return
         prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
         text = f"[{issue_key}] {summary}\n{prow_url}"
-        self._notify_slack(rule.slack_channel, text, firewatch_config)
+        self._notify_slack(rule.slack_channel or "", text, firewatch_config)
 
     def _slack_duplicate(
         self,
@@ -691,11 +694,11 @@ class Report:
         rule: Rule,
         firewatch_config: Configuration,
     ) -> None:
-        if not rule.slack_channel:
+        if not self._should_notify_slack(rule, firewatch_config):
             return
         prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
         text = f"Duplicate failure detected on {issue_key}\nJob: {job.name} | Build: {job.build_id}\n{prow_url}"
-        self._notify_slack(rule.slack_channel, text, firewatch_config)
+        self._notify_slack(rule.slack_channel or "", text, firewatch_config)
 
     def _slack_success(
         self,
@@ -704,10 +707,10 @@ class Report:
         rule: Rule,
         firewatch_config: Configuration,
     ) -> None:
-        if not rule.slack_channel:
+        if not self._should_notify_slack(rule, firewatch_config):
             return
         text = f"[{issue_key}] Job {job.name} passed - {datetime.now().strftime('%m-%d-%Y')}"
-        self._notify_slack(rule.slack_channel, text, firewatch_config)
+        self._notify_slack(rule.slack_channel or "", text, firewatch_config)
 
     def relate_issues(self, issues: list[str], jira: Jira) -> None:
         """
