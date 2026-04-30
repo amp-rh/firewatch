@@ -81,8 +81,7 @@ def test_slack_new_issue_calls_notify_when_channel_set(report_instance, sample_j
     with patch.object(report_instance, "_notify_slack") as mock_notify:
         report_instance._slack_new_issue("ABC-1", "summary line", sample_job, rule, config)
     expected_url = (
-        "https://prow.ci.openshift.org/view/gs/test-platform-results/logs/"
-        f"{sample_job.name}/{sample_job.build_id}"
+        f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{sample_job.name}/{sample_job.build_id}"
     )
     mock_notify.assert_called_once_with(
         "#alerts",
@@ -107,8 +106,7 @@ def test_slack_new_issue_fires_when_no_channel_but_webhook_set(report_instance, 
     config = MagicMock()
     config.slack_webhook_url = "https://hooks.slack.com/services/XXX"
     expected_url = (
-        "https://prow.ci.openshift.org/view/gs/test-platform-results/logs/"
-        f"{sample_job.name}/{sample_job.build_id}"
+        f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{sample_job.name}/{sample_job.build_id}"
     )
     with patch.object(report_instance, "_notify_slack") as mock_notify:
         report_instance._slack_new_issue("ABC-1", "summary", sample_job, rule, config)
@@ -134,13 +132,10 @@ def test_slack_duplicate_calls_notify_when_channel_set(report_instance, sample_j
     rule.slack_channel = "#dup"
     config = MagicMock()
     expected_url = (
-        "https://prow.ci.openshift.org/view/gs/test-platform-results/logs/"
-        f"{sample_job.name}/{sample_job.build_id}"
+        f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{sample_job.name}/{sample_job.build_id}"
     )
     expected_text = (
-        f"Duplicate failure detected on ROX-99\n"
-        f"Job: {sample_job.name} | Build: {sample_job.build_id}\n"
-        f"{expected_url}"
+        f"Duplicate failure detected on ROX-99\nJob: {sample_job.name} | Build: {sample_job.build_id}\n{expected_url}"
     )
     with patch.object(report_instance, "_notify_slack") as mock_notify:
         report_instance._slack_duplicate("ROX-99", sample_job, rule, config)
@@ -163,13 +158,10 @@ def test_slack_duplicate_fires_when_no_channel_but_webhook_set(report_instance, 
     config = MagicMock()
     config.slack_webhook_url = "https://hooks.slack.com/services/XXX"
     expected_url = (
-        "https://prow.ci.openshift.org/view/gs/test-platform-results/logs/"
-        f"{sample_job.name}/{sample_job.build_id}"
+        f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{sample_job.name}/{sample_job.build_id}"
     )
     expected_text = (
-        f"Duplicate failure detected on ROX-99\n"
-        f"Job: {sample_job.name} | Build: {sample_job.build_id}\n"
-        f"{expected_url}"
+        f"Duplicate failure detected on ROX-99\nJob: {sample_job.name} | Build: {sample_job.build_id}\n{expected_url}"
     )
     with patch.object(report_instance, "_notify_slack") as mock_notify:
         report_instance._slack_duplicate("ROX-99", sample_job, rule, config)
