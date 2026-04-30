@@ -56,7 +56,7 @@ def test_send_notification_failure(mock_chat_post, slack_client):
 def test_post_webhook_success(mock_post):
     mock_response = MagicMock()
     mock_post.return_value = mock_response
-    webhook_url = "https://hooks.slack.com/services/T00/B00/xxx"
+    webhook_url = "https://hooks.slack.com/services/T00/B00/xxx"  # pragma: allowlist secret
     text = "notification body"
 
     SlackClient.post_webhook(webhook_url, text)
@@ -75,4 +75,4 @@ def test_post_webhook_failure(mock_post):
     mock_post.side_effect = requests.exceptions.HTTPError("bad response")
 
     with pytest.raises(requests.exceptions.HTTPError):
-        SlackClient.post_webhook("https://hooks.slack.com/services/T00/B00/xxx", "text")
+        SlackClient.post_webhook("https://hooks.slack.com/services/T00/B00/xxx", "text")  # pragma: allowlist secret

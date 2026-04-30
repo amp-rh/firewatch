@@ -30,6 +30,7 @@ The `Jira` class reads credentials from a JSON file specified via `--jira-config
 | `proxies` | object | HTTP/HTTPS proxy URLs for stage environments |
 
 **Quick checks**:
+
 - Confirm the file is valid JSON (`python -c "import json; json.load(open('<path>'))"`)
 - Confirm `url` is a reachable Jira instance
 - Confirm `token` is non-empty and does not contain leading/trailing whitespace or newlines
@@ -47,6 +48,7 @@ The auth mode is determined by the presence of the `email` field in the config f
 **Validation via curl**:
 
 Jira Cloud:
+
 ```bash
 curl -s -o /dev/null -w "%{http_code}" \
   -u "<email>:<token>" \
@@ -54,6 +56,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 ```
 
 Jira Server/DC:
+
 ```bash
 curl -s -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer <token>" \
@@ -63,6 +66,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 A `200` confirms the token is valid. A `401` means the token is expired, revoked, or incorrect. A `403` means the token is valid but lacks permissions.
 
 **Common mistakes**:
+
 - Using a Cloud API token without the `email` field (sends as PAT, gets 401)
 - Using a Server/DC PAT with the `email` field (sends as Basic Auth, gets 401)
 - Copying the token with trailing newlines from `cat` output
@@ -76,12 +80,14 @@ In OpenShift CI (Prow), the Jira token is provisioned as a Kubernetes secret mou
 | `FIREWATCH_JIRA_API_TOKEN_PATH` | `/tmp/secrets/jira/access_token` | Path to the mounted token file |
 
 The CI step script typically runs:
+
 ```bash
 echo "${JIRA_TOKEN}" > /tmp/token
 firewatch jira-config-gen --token-path /tmp/token --server-url "${JIRA_SERVER_URL}"
 ```
 
 **Quick checks**:
+
 - Verify the token file exists at the expected path and is non-empty
 - Confirm the file contains the raw token string (not JSON, not base64-encoded)
 - Check for trailing newlines: `wc -l /tmp/secrets/jira/access_token` should return `0` (no newline) or `1` (single trailing newline, which `JiraConfig.token()` strips via `.strip()`)
@@ -90,12 +96,14 @@ firewatch jira-config-gen --token-path /tmp/token --server-url "${JIRA_SERVER_UR
 ### 4. Token Renewal Procedures
 
 **Jira Cloud (Atlassian API tokens)**:
-1. Log in to https://id.atlassian.com/manage-profile/security/api-tokens
+
+1. Log in to <https://id.atlassian.com/manage-profile/security/api-tokens>
 2. Revoke the expired token if still listed
 3. Create a new API token with a descriptive label
 4. Note: Atlassian org admins can enforce token expiration policies; check with your org admin if tokens expire unexpectedly soon
 
 **Jira Server/Data Center (PATs)**:
+
 1. Log in to the Jira instance as the service account user (e.g., `firewatch-tool`)
 2. Navigate to Profile > Personal Access Tokens
 3. Create a new token, setting an appropriate expiration date
