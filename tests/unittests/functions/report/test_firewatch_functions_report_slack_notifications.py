@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from src.objects.failure import Failure
+from src.objects.failure_rule import FailureRule
 from src.objects.job import Job
 from src.report.report import Report
 
@@ -20,6 +22,93 @@ def sample_job():
     job.name = "periodic-ci-example"
     job.build_id = "12345"
     return job
+
+
+class TestNotifyFailureWebhooks:
+    def _make_config(self, webhook_url="https://hooks.slack.com/test", failure_rules=None):
+        config = MagicMock()
+        config.slack_webhook_url = webhook_url
+        config.slack_bot_token = None
+        config.default_jira_project = "TEST"
+        config.failure_rules = failure_rules
+        return config
+
+    def _make_failure(self, step="fail-step", failure_type="pod_failure"):
+        return Failure(failed_step=step, failure_type=failure_type)
+
+    def _make_rule(self, step="*", failure_type="all", classification="Test", jira_project="TEST"):
+        return FailureRule({
+            "step": step,
+            "failure_type": failure_type,
+            "classification": classification,
+            "jira_project": jira_project,
+        })
+
+    def test_fires_webhook_for_matched_failures(self, report_instance):
+        rule = self._make_rule()
+        config = self._make_config(failure_rules=[rule])
+        failure = self._make_failure()
+        job = MagicMock(spec=Job)
+        job.name = "rehearse-12345-test-job"
+        job.build_id = "99999"
+
+        with patch.object(report_instance, "_notify_slack") as mock_notify:
+            report_instance._notify_failure_webhooks([failure], config, job)
+
+        mock_notify.assert_called_once()
+        text = mock_notify.call_args[0][1]
+        assert "fail-step" in text
+        assert "pod_failure" in text
+        assert job.name in text
+
+    def test_skips_webhook_when_no_webhook_url(self, report_instance):
+        rule = self._make_rule()
+        config = self._make_config(webhook_url=None, failure_rules=[rule])
+        failure = self._make_failure()
+        job = MagicMock(spec=Job)
+        job.name = "test-job"
+        job.build_id = "1"
+
+        with patch.object(report_instance, "_notify_slack") as mock_notify:
+            report_instance._notify_failure_webhooks([failure], config, job)
+
+        mock_notify.assert_not_called()
+
+    def test_skips_ignored_rules(self, report_instance):
+        rule = FailureRule({
+            "step": "fail-step",
+            "failure_type": "all",
+            "classification": "Ignore",
+            "jira_project": "TEST",
+            "ignore": True,
+        })
+        config = self._make_config(failure_rules=[rule])
+        failure = self._make_failure()
+        job = MagicMock(spec=Job)
+        job.name = "test-job"
+        job.build_id = "1"
+
+        with patch.object(report_instance, "_notify_slack") as mock_notify:
+            report_instance._notify_failure_webhooks([failure], config, job)
+
+        mock_notify.assert_not_called()
+
+    def test_fires_once_per_failure_rule_pair(self, report_instance):
+        rule_a = self._make_rule(step="fail-*", jira_project="A")
+        rule_b = self._make_rule(step="other-*", jira_project="B")
+        config = self._make_config(failure_rules=[rule_a, rule_b])
+        failures = [
+            self._make_failure(step="fail-step"),
+            self._make_failure(step="other-step"),
+        ]
+        job = MagicMock(spec=Job)
+        job.name = "test-job"
+        job.build_id = "1"
+
+        with patch.object(report_instance, "_notify_slack") as mock_notify:
+            report_instance._notify_failure_webhooks(failures, config, job)
+
+        assert mock_notify.call_count == 2
 
 
 def test_notify_slack_calls_post_webhook_when_webhook_url_set(report_instance):
@@ -93,6 +182,7 @@ def test_slack_new_issue_calls_notify_when_channel_set(report_instance, sample_j
 def test_slack_new_issue_skips_when_no_channel_and_no_webhook(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = None
     with patch.object(report_instance, "_notify_slack") as mock_notify:
@@ -103,6 +193,7 @@ def test_slack_new_issue_skips_when_no_channel_and_no_webhook(report_instance, s
 def test_slack_new_issue_fires_when_no_channel_but_webhook_set(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = "https://hooks.slack.com/services/XXX"
     expected_url = (
@@ -145,6 +236,7 @@ def test_slack_duplicate_calls_notify_when_channel_set(report_instance, sample_j
 def test_slack_duplicate_skips_when_no_channel_and_no_webhook(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = None
     with patch.object(report_instance, "_notify_slack") as mock_notify:
@@ -155,6 +247,7 @@ def test_slack_duplicate_skips_when_no_channel_and_no_webhook(report_instance, s
 def test_slack_duplicate_fires_when_no_channel_but_webhook_set(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = "https://hooks.slack.com/services/XXX"
     expected_url = (
@@ -201,6 +294,7 @@ def test_slack_success_calls_notify_when_channel_set(report_instance, sample_job
 def test_slack_success_skips_when_no_channel_and_no_webhook(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = None
     with patch.object(report_instance, "_notify_slack") as mock_notify:
@@ -211,6 +305,7 @@ def test_slack_success_skips_when_no_channel_and_no_webhook(report_instance, sam
 def test_slack_success_fires_when_no_channel_but_webhook_set(report_instance, sample_job):
     rule = MagicMock()
     rule.slack_channel = None
+    rule.slack_user = None
     config = MagicMock()
     config.slack_webhook_url = "https://hooks.slack.com/services/XXX"
     mock_now = MagicMock()
@@ -266,6 +361,7 @@ class TestShouldNotifySlack:
     def test_returns_false_when_neither_set(self, report_instance):
         rule = MagicMock()
         rule.slack_channel = None
+        rule.slack_user = None
         config = MagicMock()
         config.slack_webhook_url = None
         assert report_instance._should_notify_slack(rule, config) is False
@@ -273,6 +369,7 @@ class TestShouldNotifySlack:
     def test_returns_false_when_channel_is_empty_string(self, report_instance):
         rule = MagicMock()
         rule.slack_channel = ""
+        rule.slack_user = None
         config = MagicMock()
         config.slack_webhook_url = None
         assert report_instance._should_notify_slack(rule, config) is False
@@ -280,6 +377,23 @@ class TestShouldNotifySlack:
     def test_returns_false_when_webhook_is_empty_string(self, report_instance):
         rule = MagicMock()
         rule.slack_channel = None
+        rule.slack_user = None
         config = MagicMock()
         config.slack_webhook_url = ""
+        assert report_instance._should_notify_slack(rule, config) is False
+
+    def test_returns_true_when_slack_user_set(self, report_instance):
+        rule = MagicMock()
+        rule.slack_channel = None
+        rule.slack_user = "user@redhat.com"
+        config = MagicMock()
+        config.slack_webhook_url = None
+        assert report_instance._should_notify_slack(rule, config) is True
+
+    def test_returns_false_when_slack_user_is_none(self, report_instance):
+        rule = MagicMock()
+        rule.slack_channel = None
+        rule.slack_user = None
+        config = MagicMock()
+        config.slack_webhook_url = None
         assert report_instance._should_notify_slack(rule, config) is False

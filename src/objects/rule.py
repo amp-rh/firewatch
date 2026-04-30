@@ -26,6 +26,7 @@ class Rule:
         self.jira_priority = self._get_jira_priority(rule_dict)
         self.jira_security_level = self._get_jira_security_level(rule_dict)
         self.slack_channel = self._get_slack_channel(rule_dict)
+        self.slack_user = self._get_slack_user(rule_dict)
 
     def _get_jira_project(self, rule_dict: dict[Any, Any]) -> str:
         """
@@ -319,5 +320,16 @@ class Rule:
 
         self.logger.error(
             f'Value for "slack_channel" or $FIREWATCH_DEFAULT_SLACK_CHANNEL is not a string in firewatch rule: "{rule_dict}"',
+        )
+        exit(1)
+
+    def _get_slack_user(self, rule_dict: dict[Any, Any]) -> Optional[str]:
+        slack_user = rule_dict.get("slack_user")
+
+        if isinstance(slack_user, str) or not slack_user:
+            return slack_user
+
+        self.logger.error(
+            f'Value for "slack_user" is not a string in firewatch rule: "{rule_dict}"',
         )
         exit(1)

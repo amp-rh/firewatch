@@ -37,6 +37,13 @@ class Report:
 
         # If job is a rehearsal
         if job.is_rehearsal:
+            if job.failures:
+                self._notify_failure_webhooks(
+                    failures=job.failures,
+                    firewatch_config=firewatch_config,
+                    job=job,
+                )
+
             self.logger.info(f"Deleting job directory: {job.download_path}")
             try:
                 shutil.rmtree(job.download_path)
@@ -671,7 +678,30 @@ class Report:
             self.logger.warning("Slack notification failed: %s", exc)
 
     def _should_notify_slack(self, rule: Rule, firewatch_config: Configuration) -> bool:
-        return bool(rule.slack_channel or firewatch_config.slack_webhook_url)
+        return bool(rule.slack_channel or rule.slack_user or firewatch_config.slack_webhook_url)
+
+    def _notify_failure_webhooks(
+        self,
+        failures: list[Failure],
+        firewatch_config: Configuration,
+        job: Job,
+    ) -> None:
+        if not firewatch_config.slack_webhook_url:
+            return
+        if not firewatch_config.failure_rules:
+            return
+        for failure in failures:
+            matched_rules = self.failure_matches_rule(
+                failure=failure,
+                rules=firewatch_config.failure_rules,
+                default_jira_project=firewatch_config.default_jira_project,
+            )
+            for rule in matched_rules:
+                if rule.ignore:
+                    continue
+                prow_url = f"https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job.name}/{job.build_id}"
+                text = f"Failure in {job.name} | step: {failure.step} | type: {failure.failure_type}\n{prow_url}"
+                self._notify_slack(rule.slack_channel or "", text, firewatch_config)
 
     def _slack_new_issue(
         self,
