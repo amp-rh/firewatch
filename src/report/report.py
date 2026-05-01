@@ -37,6 +37,7 @@ class Report:
 
         # If job is a rehearsal
         if job.is_rehearsal:
+            self.logger.info("Rehearsal job detected with %d failure(s)", len(job.failures))
             if job.failures:
                 self._notify_failure_webhooks(
                     failures=job.failures,
@@ -686,9 +687,17 @@ class Report:
         firewatch_config: Configuration,
         job: Job,
     ) -> None:
+        self.logger.info(
+            "Webhook check: slack_webhook_url=%s, failure_rules=%s, failures=%d",
+            bool(firewatch_config.slack_webhook_url),
+            bool(firewatch_config.failure_rules),
+            len(failures),
+        )
         if not firewatch_config.slack_webhook_url:
+            self.logger.warning("No SLACK_WEBHOOK_URL configured; skipping webhook notifications")
             return
         if not firewatch_config.failure_rules:
+            self.logger.warning("No failure_rules configured; skipping webhook notifications")
             return
         for failure in failures:
             matched_rules = self.failure_matches_rule(
@@ -696,6 +705,7 @@ class Report:
                 rules=firewatch_config.failure_rules,
                 default_jira_project=firewatch_config.default_jira_project,
             )
+            self.logger.info("Failure in step %s matched %d rule(s)", failure.step, len(matched_rules))
             for rule in matched_rules:
                 if rule.ignore:
                     continue
